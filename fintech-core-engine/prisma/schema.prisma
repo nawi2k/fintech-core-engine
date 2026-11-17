@@ -1,0 +1,72 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  CUSTOMER
+  ADMIN
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  TRANSFER
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  fullName  String
+  role      Role     @default(CUSTOMER)
+  wallet    Wallet?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+model Wallet {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance   Decimal  @default(0.00) @db.Decimal(12, 2)
+  currency  String   @default("ARS")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relaciones de transacciones de salida y entrada
+  sentTransactions     Transaction[] @relation("SenderWallet")
+  receivedTransactions Transaction[] @relation("ReceiverWallet")
+
+  @@map("wallets")
+}
+
+model Transaction {
+  id            String            @id @default(uuid())
+  senderWalletId String?
+  senderWallet  Wallet?           @relation("SenderWallet", fields: [senderWalletId], references: [id])
+  receiverWalletId String?
+  receiverWallet Wallet?          @relation("ReceiverWallet", fields: [receiverWalletId], references: [id])
+  
+  amount        Decimal           @db.Decimal(12, 2)
+  type          TransactionType
+  status        TransactionStatus @default(PENDING)
+  description   String?
+  
+  createdAt     DateTime          @default(now())
+
+  @@map("transactions")
+}
