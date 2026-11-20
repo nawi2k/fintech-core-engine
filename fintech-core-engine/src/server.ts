@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import dotenv from 'dotenv';
 import authRoutes from './modules/auth/authRoutes';
 import transactionRoutes from './modules/transactions/transactionRoutes';
+import walletRoutes from './modules/wallets/walletRoutes';
 
 dotenv.config();
 
@@ -13,6 +14,7 @@ app.use(express.json());
 // Rutas de módulos
 app.use('/api/auth', authRoutes);
 app.use('/api/transactions', transactionRoutes);
+app.use('/api/wallets', walletRoutes);
 
 // Health check
 app.get('/health', (req: Request, res: Response) => {
