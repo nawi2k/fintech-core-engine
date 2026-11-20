@@ -1,16 +1,20 @@
 import express, { Request, Response } from 'express';
 import dotenv from 'dotenv';
+import authRoutes from './modules/auth/authRoutes';
+import transactionRoutes from './modules/transactions/transactionRoutes';
 
-// Cargar variables de entorno del archivo .env
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware para parsear JSON en las peticiones HTTP
 app.use(express.json());
 
-// Ruta de estado (Health Check) para verificar que el core está vivo
+// Rutas de módulos
+app.use('/api/auth', authRoutes);
+app.use('/api/transactions', transactionRoutes);
+
+// Health check
 app.get('/health', (req: Request, res: Response) => {
   res.status(200).json({
     status: 'ONLINE',
@@ -19,7 +23,6 @@ app.get('/health', (req: Request, res: Response) => {
   });
 });
 
-// Arrancar el servidor
 app.listen(PORT, () => {
   console.log(`🚀 [FINTECH CORE] Servidor corriendo exitosamente en el puerto ${PORT}`);
 });
