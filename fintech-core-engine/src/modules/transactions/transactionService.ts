@@ -40,7 +40,16 @@ export class TransactionService {
         },
       });
 
-      return { wallet: updatedWallet, transaction };
+      const ledgerEntry = await tx.ledgerEntry.create({
+        data: {
+          transactionId: transaction.id,
+          walletId,
+          entryType: 'CREDIT',
+          amount: safeAmount,
+        },
+      });
+
+      return { wallet: updatedWallet, transaction, ledgerEntry };
     });
   }
 
@@ -107,8 +116,27 @@ export class TransactionService {
         },
       });
 
+      const debitEntry = await tx.ledgerEntry.create({
+        data: {
+          transactionId: transaction.id,
+          walletId: senderWalletId,
+          entryType: 'DEBIT',
+          amount: safeAmount,
+        },
+      });
+
+      const creditEntry = await tx.ledgerEntry.create({
+        data: {
+          transactionId: transaction.id,
+          walletId: receiverWalletId,
+          entryType: 'CREDIT',
+          amount: safeAmount,
+        },
+      });
+
       return {
         transaction,
+        ledgerEntries: [debitEntry, creditEntry],
         senderBalance: updatedSender.balance,
         receiverBalance: updatedReceiver.balance,
       };
