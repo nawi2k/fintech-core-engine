@@ -1,21 +1,21 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-generator client {
-  provider = "prisma-client-js"
-}
-
 enum Role {
-  CUSTOMER
+  USER
   ADMIN
 }
 
 enum TransactionType {
   DEPOSIT
-  WITHDRAWAL
   TRANSFER
+  WITHDRAWAL
 }
 
 enum TransactionStatus {
@@ -24,12 +24,17 @@ enum TransactionStatus {
   FAILED
 }
 
+enum EntryType {
+  DEBIT
+  CREDIT
+}
+
 model User {
   id        String   @id @default(uuid())
   email     String   @unique
   password  String
   fullName  String
-  role      Role     @default(CUSTOMER)
+  role      Role     @default(USER)
   wallet    Wallet?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -38,35 +43,46 @@ model User {
 }
 
 model Wallet {
-  id        String   @id @default(uuid())
-  userId    String   @unique
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  balance   Decimal  @default(0.00) @db.Decimal(12, 2)
-  currency  String   @default("ARS")
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relaciones de transacciones de salida y entrada
-  sentTransactions     Transaction[] @relation("SenderWallet")
-  receivedTransactions Transaction[] @relation("ReceiverWallet")
+  id                   String        @id @default(uuid())
+  userId               String        @unique
+  user                 User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance              Decimal       @default(0.00) @db.Decimal(12, 2)
+  currency             String        @default("ARS")
+  isActive             Boolean       @default(true)
+  sentTransactions     Transaction[] @relation("SentTransactions")
+  receivedTransactions Transaction[] @relation("ReceivedTransactions")
+  ledgerEntries        LedgerEntry[]
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
 
   @@map("wallets")
 }
 
 model Transaction {
-  id            String            @id @default(uuid())
-  senderWalletId String?
-  senderWallet  Wallet?           @relation("SenderWallet", fields: [senderWalletId], references: [id])
+  id               String            @id @default(uuid())
+  senderWalletId   String?
+  senderWallet     Wallet?           @relation("SentTransactions", fields: [senderWalletId], references: [id])
   receiverWalletId String?
-  receiverWallet Wallet?          @relation("ReceiverWallet", fields: [receiverWalletId], references: [id])
-  
-  amount        Decimal           @db.Decimal(12, 2)
-  type          TransactionType
-  status        TransactionStatus @default(PENDING)
-  description   String?
-  
-  createdAt     DateTime          @default(now())
+  receiverWallet   Wallet?           @relation("ReceivedTransactions", fields: [receiverWalletId], references: [id])
+  amount           Decimal           @db.Decimal(12, 2)
+  type             TransactionType
+  status           TransactionStatus @default(PENDING)
+  description      String?
+  ledgerEntries    LedgerEntry[]
+  createdAt        DateTime          @default(now())
 
   @@map("transactions")
+}
+
+model LedgerEntry {
+  id            String      @id @default(uuid())
+  transactionId String
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  walletId      String
+  wallet        Wallet      @relation(fields: [walletId], references: [id])
+  entryType     EntryType
+  amount        Decimal     @db.Decimal(12, 2)
+  createdAt     DateTime    @default(now())
+
+  @@map("ledger_entries")
 }
