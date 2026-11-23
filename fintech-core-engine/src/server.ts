@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import authRoutes from './modules/auth/authRoutes';
 import transactionRoutes from './modules/transactions/transactionRoutes';
 import walletRoutes from './modules/wallets/walletRoutes';
+import { errorMiddleware } from './middleware/errorMiddleware';
 
 dotenv.config();
 
@@ -24,6 +25,18 @@ app.get('/health', (req: Request, res: Response) => {
     timestamp: new Date(),
   });
 });
+
+// Ruta no encontrada (404)
+app.use((req: Request, res: Response) => {
+  res.status(404).json({
+    status: 'error',
+    statusCode: 404,
+    error: `Ruta no encontrada: ${req.method} ${req.originalUrl}`,
+  });
+});
+
+// Middleware centralizado de manejo de errores
+app.use(errorMiddleware);
 
 app.listen(PORT, () => {
   console.log(`🚀 [FINTECH CORE] Servidor corriendo exitosamente en el puerto ${PORT}`);
