@@ -1,11 +1,12 @@
 import { PrismaClient, Prisma } from '@prisma/client';
+import { AppError } from '../../middleware/errorMiddleware';
 
 const prisma = new PrismaClient();
 
 export class TransactionService {
   public static async deposit(walletId: string, amount: number, description?: string) {
     if (amount <= 0) {
-      throw new Error('El monto del depósito debe ser mayor a cero.');
+      throw new AppError('El monto del depósito debe ser mayor a cero.', 400);
     }
 
     const safeAmount = Number(amount.toFixed(2));
@@ -14,11 +15,11 @@ export class TransactionService {
       const wallet = await tx.wallet.findUnique({ where: { id: walletId } });
 
       if (!wallet) {
-        throw new Error('La billetera de destino no existe.');
+        throw new AppError('La billetera de destino no existe.', 404);
       }
 
       if (!wallet.isActive) {
-        throw new Error('La billetera se encuentra inactiva.');
+        throw new AppError('La billetera se encuentra inactiva.', 400);
       }
 
       const updatedWallet = await tx.wallet.update({
@@ -57,14 +58,30 @@ export class TransactionService {
     senderWalletId: string,
     receiverWalletId: string,
     amount: number,
-    description?: string
+    description?: string,
+    idempotencyKey?: string
   ) {
     if (senderWalletId === receiverWalletId) {
-      throw new Error('No podés transferir dinero a la misma billetera.');
+      throw new AppError('No podés transferir dinero a la misma billetera.', 400);
     }
 
     if (amount <= 0) {
-      throw new Error('El monto de la transferencia debe ser mayor a cero.');
+      throw new AppError('El monto de la transferencia debe ser mayor a cero.', 400);
+    }
+
+    if (idempotencyKey) {
+      const existingTx = await prisma.transaction.findUnique({
+        where: { idempotencyKey },
+        include: { ledgerEntries: true },
+      });
+
+      if (existingTx) {
+        return {
+          transaction: existingTx,
+          ledgerEntries: existingTx.ledgerEntries,
+          idempotentReplay: true,
+        };
+      }
     }
 
     const safeAmount = Number(amount.toFixed(2));
@@ -74,16 +91,17 @@ export class TransactionService {
       const receiverWallet = await tx.wallet.findUnique({ where: { id: receiverWalletId } });
 
       if (!senderWallet || !receiverWallet) {
-        throw new Error('Una de las billeteras involucradas no existe.');
+        throw new AppError('Una de las billeteras involucradas no existe.', 404);
       }
 
       if (!senderWallet.isActive || !receiverWallet.isActive) {
-        throw new Error('Una de las billeteras se encuentra inactiva.');
+        throw new AppError('Una de las billeteras se encuentra inactiva.', 400);
       }
 
       if (Number(senderWallet.balance) < safeAmount) {
-        throw new Error(
-          `Saldo insuficiente. Disponible: ${senderWallet.balance.toString()} ${senderWallet.currency}`
+        throw new AppError(
+          `Saldo insuficiente. Disponible: ${senderWallet.balance.toString()} ${senderWallet.currency}`,
+          400
         );
       }
 
@@ -107,6 +125,7 @@ export class TransactionService {
 
       const transaction = await tx.transaction.create({
         data: {
+          idempotencyKey: idempotencyKey || null,
           senderWalletId,
           receiverWalletId,
           amount: safeAmount,
@@ -139,6 +158,7 @@ export class TransactionService {
         ledgerEntries: [debitEntry, creditEntry],
         senderBalance: updatedSender.balance,
         receiverBalance: updatedReceiver.balance,
+        idempotentReplay: false,
       };
     });
   }
