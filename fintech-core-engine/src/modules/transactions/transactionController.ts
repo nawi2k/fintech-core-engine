@@ -25,13 +25,16 @@ export class TransactionController {
         data: result,
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message || 'Error al procesar el depósito.' });
+      res.status(error.statusCode || 400).json({
+        error: error.message || 'Error al procesar el depósito.',
+      });
     }
   }
 
   public static async transfer(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
-      const { senderWalletId, receiverWalletId, amount, description } = req.body;
+      const { senderWalletId, receiverWalletId, amount, description, idempotencyKey } = req.body;
+      const headerKey = req.header('Idempotency-Key') || idempotencyKey;
 
       if (!senderWalletId || !receiverWalletId || amount === undefined) {
         res.status(400).json({
@@ -52,15 +55,20 @@ export class TransactionController {
         senderWalletId,
         receiverWalletId,
         Number(amount),
-        description
+        description,
+        headerKey
       );
 
-      res.status(201).json({
-        message: 'Transferencia completada con éxito.',
+      res.status(result.idempotentReplay ? 200 : 201).json({
+        message: result.idempotentReplay
+          ? 'Transacción ya procesada previamente (respuesta idempotente).'
+          : 'Transferencia completada con éxito.',
         data: result,
       });
     } catch (error: any) {
-      res.status(400).json({ error: error.message || 'Error al procesar la transferencia.' });
+      res.status(error.statusCode || 400).json({
+        error: error.message || 'Error al procesar la transferencia.',
+      });
     }
   }
 }
