@@ -1,14 +1,23 @@
+@'
 # Dependencias
 node_modules/
+**/node_modules/
 
 # Entorno y credenciales
 .env
+.env.*
+!.env.example
 
 # Compilación y TypeScript
 dist/
 build/
 *.js
 *.js.map
+!jest.config.js
+!prisma.config.ts
+
+# Cobertura de tests
+coverage/
 
 # Logs y bases de datos locales
 npm-debug.log*
@@ -20,3 +29,4 @@ yarn-error.log*
 # Sistema operativo
 .DS_Store
 Thumbs.db
+'@ | Set-Content -Path ".\.gitignore" -Encoding UTF8
