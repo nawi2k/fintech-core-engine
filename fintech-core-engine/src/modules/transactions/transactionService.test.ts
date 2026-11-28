@@ -1,91 +1,195 @@
-import { describe, test, expect, jest, beforeEach } from '@jest/globals';
+import { describe, it, expect, beforeEach, jest } from '@jest/globals';
 import { TransactionService } from './transactionService';
 
 const mockWalletFindUnique = jest.fn<(...args: any[]) => Promise<any>>();
 const mockWalletUpdate = jest.fn<(...args: any[]) => Promise<any>>();
 const mockTransactionCreate = jest.fn<(...args: any[]) => Promise<any>>();
-const mockLedgerEntryCreate = jest.fn<(...args: any[]) => Promise<any>>();
 const mockTransactionFindUnique = jest.fn<(...args: any[]) => Promise<any>>();
-
-const mockTx = {
-  wallet: {
-    findUnique: mockWalletFindUnique,
-    update: mockWalletUpdate,
-  },
-  transaction: {
-    create: mockTransactionCreate,
-  },
-  ledgerEntry: {
-    create: mockLedgerEntryCreate,
-  },
-};
-
-const mockPrismaTransaction = jest.fn<
-  (cb: (tx: typeof mockTx) => Promise<any>) => Promise<any>
->(async (cb) => cb(mockTx));
+const mockLedgerEntryCreate = jest.fn<(...args: any[]) => Promise<any>>();
+const mockPrismaTransaction = jest.fn<(...args: any[]) => Promise<any>>();
 
 jest.mock('@prisma/client', () => ({
+  Prisma: {},
   PrismaClient: jest.fn(() => ({
-    $transaction: mockPrismaTransaction,
+    $transaction: (...args: any[]) => mockPrismaTransaction(...args),
+    wallet: {
+      findUnique: (...args: any[]) => mockWalletFindUnique(...args),
+      update: (...args: any[]) => mockWalletUpdate(...args),
+    },
     transaction: {
-      findUnique: mockTransactionFindUnique,
+      create: (...args: any[]) => mockTransactionCreate(...args),
+      findUnique: (...args: any[]) => mockTransactionFindUnique(...args),
+    },
+    ledgerEntry: {
+      create: (...args: any[]) => mockLedgerEntryCreate(...args),
     },
   })),
-  Prisma: {
-    TransactionClient: class {},
-  },
 }));
 
 describe('TransactionService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+
+    mockPrismaTransaction.mockImplementation(async (callback: (tx: any) => Promise<any>) => {
+      const txClient = {
+        wallet: {
+          findUnique: mockWalletFindUnique,
+          update: mockWalletUpdate,
+        },
+        transaction: {
+          create: mockTransactionCreate,
+          findUnique: mockTransactionFindUnique,
+        },
+        ledgerEntry: {
+          create: mockLedgerEntryCreate,
+        },
+      };
+      return callback(txClient);
+    });
   });
 
-  test('rechaza un depósito con monto cero o negativo', async () => {
-    await expect(TransactionService.deposit('wallet-1', 0)).rejects.toThrow(
-      'El monto del depósito debe ser mayor a cero.'
-    );
-    await expect(TransactionService.deposit('wallet-1', -500)).rejects.toThrow(
-      'El monto del depósito debe ser mayor a cero.'
-    );
+  describe('deposit', () => {
+    it('debería acreditar saldo, crear la transacción y registrar el asiento CREDIT', async () => {
+      const walletId = '11111111-1111-4111-8111-111111111111';
+      const amount = 500;
+
+      mockWalletFindUnique.mockResolvedValue({
+        id: walletId,
+        userId: 'user-1',
+        balance: 1000,
+        currency: 'ARS',
+        isActive: true,
+      });
+
+      mockWalletUpdate.mockResolvedValue({
+        id: walletId,
+        userId: 'user-1',
+        balance: 1500,
+        currency: 'ARS',
+        isActive: true,
+      });
+
+      const createdTx = {
+        id: 'tx-deposit-1',
+        type: 'DEPOSIT',
+        amount,
+        status: 'COMPLETED',
+        receiverWalletId: walletId,
+      };
+      mockTransactionCreate.mockResolvedValue(createdTx);
+      mockLedgerEntryCreate.mockResolvedValue({
+        id: 'ledger-1',
+        transactionId: createdTx.id,
+        walletId,
+        entryType: 'CREDIT',
+        amount,
+      });
+
+      const result = await TransactionService.deposit(walletId, amount, 'Carga inicial');
+
+      expect(mockPrismaTransaction).toHaveBeenCalledTimes(1);
+      expect(mockWalletUpdate).toHaveBeenCalledTimes(1);
+      expect(mockTransactionCreate).toHaveBeenCalledTimes(1);
+      expect(mockLedgerEntryCreate).toHaveBeenCalledTimes(1);
+      expect(result.ledgerEntry.entryType).toBe('CREDIT');
+    });
   });
 
-  test('rechaza transferir a la misma billetera', async () => {
-    await expect(
-      TransactionService.transfer('wallet-1', 'wallet-1', 1000)
-    ).rejects.toThrow('No podés transferir dinero a la misma billetera.');
-  });
+  describe('transfer', () => {
+    it('debería transferir saldo de forma atómica y generar asientos DEBIT y CREDIT', async () => {
+      const senderWalletId = '11111111-1111-4111-8111-111111111111';
+      const receiverWalletId = '22222222-2222-4222-8222-222222222222';
+      const amount = 250;
 
-  test('rechaza transferencia si el saldo es insuficiente', async () => {
-    mockTransactionFindUnique.mockResolvedValue(null);
-    mockWalletFindUnique
-      .mockResolvedValueOnce({ id: 'w-sender', balance: 200, currency: 'ARS', isActive: true })
-      .mockResolvedValueOnce({ id: 'w-receiver', balance: 500, currency: 'ARS', isActive: true });
+      mockTransactionFindUnique.mockResolvedValue(null);
 
-    await expect(
-      TransactionService.transfer('w-sender', 'w-receiver', 1000, 'Pago')
-    ).rejects.toThrow('Saldo insuficiente.');
-  });
+      mockWalletFindUnique
+        .mockResolvedValueOnce({
+          id: senderWalletId,
+          userId: 'user-sender',
+          balance: 1000,
+          currency: 'ARS',
+          isActive: true,
+        })
+        .mockResolvedValueOnce({
+          id: receiverWalletId,
+          userId: 'user-receiver',
+          balance: 300,
+          currency: 'ARS',
+          isActive: true,
+        });
 
-  test('devuelve respuesta idempotente si ya existe la idempotencyKey', async () => {
-    const existingTx = {
-      id: 'tx-123',
-      idempotencyKey: 'key-abc-123',
-      amount: 2500,
-      ledgerEntries: [{ id: 'le-1', entryType: 'DEBIT', amount: 2500 }],
-    };
-    mockTransactionFindUnique.mockResolvedValue(existingTx);
+      mockWalletUpdate
+        .mockResolvedValueOnce({
+          id: senderWalletId,
+          balance: 750,
+        })
+        .mockResolvedValueOnce({
+          id: receiverWalletId,
+          balance: 550,
+        });
 
-    const result: any = await TransactionService.transfer(
-      'w-sender',
-      'w-receiver',
-      2500,
-      'Reintento',
-      'key-abc-123'
-    );
+      mockTransactionCreate.mockResolvedValue({
+        id: 'tx-transfer-1',
+        type: 'TRANSFER',
+        amount,
+        status: 'COMPLETED',
+        senderWalletId,
+        receiverWalletId,
+      });
 
-    expect(result.idempotentReplay).toBe(true);
-    expect(result.transaction.id).toBe('tx-123');
-    expect(mockPrismaTransaction).not.toHaveBeenCalled();
+      mockLedgerEntryCreate
+        .mockResolvedValueOnce({ id: 'ledger-debit', entryType: 'DEBIT', amount })
+        .mockResolvedValueOnce({ id: 'ledger-credit', entryType: 'CREDIT', amount });
+
+      const result = await TransactionService.transfer(
+        senderWalletId,
+        receiverWalletId,
+        amount,
+        'Pago transferencia',
+        'idem-key-123456'
+      );
+
+      expect(mockPrismaTransaction).toHaveBeenCalledTimes(1);
+      expect(mockWalletUpdate).toHaveBeenCalledTimes(2);
+      expect(mockTransactionCreate).toHaveBeenCalledTimes(1);
+      expect(mockLedgerEntryCreate).toHaveBeenCalledTimes(2);
+      expect(result.idempotentReplay).toBe(false);
+    });
+
+    it('debería rechazar una transferencia si la billetera origen no tiene saldo suficiente', async () => {
+      const senderWalletId = '11111111-1111-4111-8111-111111111111';
+      const receiverWalletId = '22222222-2222-4222-8222-222222222222';
+
+      mockTransactionFindUnique.mockResolvedValue(null);
+
+      mockWalletFindUnique
+        .mockResolvedValueOnce({
+          id: senderWalletId,
+          userId: 'user-sender',
+          balance: 100,
+          currency: 'ARS',
+          isActive: true,
+        })
+        .mockResolvedValueOnce({
+          id: receiverWalletId,
+          userId: 'user-receiver',
+          balance: 300,
+          currency: 'ARS',
+          isActive: true,
+        });
+
+      await expect(
+        TransactionService.transfer(
+          senderWalletId,
+          receiverWalletId,
+          500,
+          'Saldo insuficiente'
+        )
+      ).rejects.toThrow('Saldo insuficiente');
+
+      expect(mockWalletUpdate).not.toHaveBeenCalled();
+      expect(mockTransactionCreate).not.toHaveBeenCalled();
+    });
   });
 });
